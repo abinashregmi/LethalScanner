@@ -50,7 +50,7 @@ class DatabaseHandler:
 st.set_page_config(page_title="LethalScanner Pro", layout="wide")
 db = DatabaseHandler()
 
-st.title("🛡️ LethalScanner Pro")
+st.title("🛡️ LethalScanner")
 st.markdown("### Full-Spectrum Web Vulnerability & Reconnaissance")
 
 # Sidebar
@@ -113,9 +113,14 @@ with col2:
     df = db.get_all_results()
     if not df.empty:
         def style_rows(row):
-            if row.Status == 200: return ['background-color: #d4edda'] * len(row) # Success
-            if row.Status == 500: return ['background-color: #f8d7da'] * len(row) # Danger
-            if row.Status == 403: return ['background-color: #fff3cd'] * len(row) # Warning
+            if row.Status == 200: 
+                return ['background-color: #1b4332; color: #d4edda'] * len(row) # Dark Green (Success)
+            if row.Status == 500: 
+                return ['background-color: #721c24; color: #f8d7da'] * len(row) # Dark Red (Danger)
+            if row.Status == 403: 
+                return ['background-color: #856404; color: #fff3cd'] * len(row) # Dark Gold/Ochre (Warning)
+                return ['color: #ffffff'] * len(row) # Default White text
+
             return [''] * len(row)
 
         st.dataframe(df.style.apply(style_rows, axis=1), use_container_width=True)
