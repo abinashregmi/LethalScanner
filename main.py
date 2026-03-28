@@ -68,7 +68,7 @@ col1, col2 = st.columns([1, 2])
 
 with col1:
     st.subheader("Scanner Control")
-    if st.button("🚀 Execute Deep Scan", use_container_width=True):
+    if st.button("^_____^ Execute Deep Scan", use_container_width=True):
         if not target_url.startswith("http"):
             st.error("Invalid URL format.")
         else:
