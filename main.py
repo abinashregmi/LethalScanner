@@ -87,7 +87,7 @@ def check_individual_path(base_url, path, scan_id, results_queue):
         status = response.status_code
         
         # Monitor critical server responses (200 OK, 403 Forbidden, 301/302 Redirects)
-        if status in:
+        if status in [200, 403, 301, 302]:
             if status == 200:
                 severity = "High Risk" if any(ext in path for ext in ['.env', 'config', 'sql', 'zip', '.php']) else "Medium"
             elif status == 403:
@@ -194,10 +194,10 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
     # =========================================================
     st.subheader("📊 Session Vulnerability Analysis Report")
     
+    report_data = []
+    csv_content = "Discovered Path,HTTP Status Code,Risk Severity Level\n"
+    
     if discovered_findings:
-        report_data = []
-        csv_content = "Discovered Path,HTTP Status Code,Risk Severity Level\n"
-        
         for item in discovered_findings:
             report_data.append({
                 "Discovered Path": f"/{item['path']}",
@@ -205,19 +205,25 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
                 "Risk Severity Level": str(item['severity'])
             })
             csv_content += f"/{item['path']},{item['status']},{item['severity']}\n"
-            
-        # Draw the visual data table directly on the screen
-        st.table(report_data)
-        
-        # Render the file downloader utility
+    else:
+        report_data.append({
+            "Discovered Path": "No findings detected",
+            "HTTP Status Code": "-",
+            "Risk Severity Level": "Clean Scan"
+        })
+        st.info("🟢 Clean Scan: No hidden or vulnerable directories were discovered on the target server.")
+        csv_content += "No findings detected,-,Clean Scan\n"
+
+    # Draw the visual data table directly on the screen
+    st.table(report_data)
+    
+    if discovered_findings:
         st.download_button(
             label="📥 Download Vulnerability Report (CSV)",
             data=csv_content,
             file_name=f"LethalScanner_Report_{scan_id}.csv",
             mime="text/csv"
         )
-    else:
-        st.info("🟢 Clean Scan: No hidden or vulnerable directories were discovered on the target server.")
 
 # --- APPLICATION INTERFACE ENGINE ---
 st.set_page_config(page_title="LethalScanner", page_icon="🛡️")
@@ -347,13 +353,20 @@ else:
                     conn.close()
                     
                     if findings:
+                        history_table = []
                         for f in findings:
+                            history_table.append({
+                                "Discovered Path": f"/{f[0]}",
+                                "HTTP Status Code": f[1],
+                                "Severity": f[2]
+                            })
                             if "High" in f[2]:
                                 st.markdown(f"🔴 `/{f[0]}` — HTTP Status: **{f[1]}** | Severity: **{f[2]}**")
                             elif "Protected" in f[2] or f[2] == "Medium":
                                 st.markdown(f"🟡 `/{f[0]}` — HTTP Status: **{f[1]}** | Severity: **{f[2]}**")
                             else:
-                                st.markdown(f"🔵 `/{f}/` — HTTP Status: **{f[1]}** | Severity: **{f[2]}**")
+                                st.markdown(f"🔵 `/{f[0]}` — HTTP Status: **{f[1]}** | Severity: **{f[2]}**")
+                        st.table(history_table)
                     else:
                         st.info("🟢 No vulnerable directories or paths detected for this session.")
         else:
