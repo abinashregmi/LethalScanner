@@ -114,6 +114,7 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
     cursor = conn.cursor()
     scan_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    # Save the master scan record
     cursor.execute(
         "INSERT INTO scans (user_id, target_url, scan_date, status, is_deep, threads) VALUES (?, ?, ?, ?, ?, ?)",
         (user_id, target_url, scan_date, "Running", 1 if is_deep_scan else 0, thread_count)
@@ -129,17 +130,20 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
     
     discovered_findings = []
     
-    # Execution Worker Pools
+    # === FIXED MULTI-THREADING CAPTURE ENGINE ===
     with concurrent.futures.ThreadPoolExecutor(max_workers=thread_count) as executor:
+        # Submit execution references map to parallel worker pools
         futures = {executor.submit(check_individual_path, target_url, path, scan_id): path for path in paths_to_scan}
         
         progress_bar = st.progress(0)
         for idx, future in enumerate(concurrent.futures.as_completed(futures)):
-            result = future.result()
-            if result:
+            result = future.result()  # Safely extracts the dictionary value returned by check_individual_path()
+            
+            if result is not None:
+                # CRITICAL STRUCTURAL FIX: Append the returned worker output value to our memory array!
                 discovered_findings.append(result)
                 
-                # Live alert boxes on screen
+                # Render live colored notifications on the screen container layout
                 if result['severity'] == "High Risk":
                     st.error(f"🔴 **Vulnerability Found:** `/{result['path']}` — HTTP Status: **{result['status']}** ({result['severity']})")
                 elif "Protected" in result['severity'] or result['severity'] == "Medium":
@@ -149,7 +153,7 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
                     
             progress_bar.progress((idx + 1) / len(paths_to_scan))
 
-    # Recursive deep scan block
+    # === RESTORED DEEP SCAN RECURSIVE ENGINE ===
     if is_deep_scan and discovered_findings:
         st.warning("🕵️ Deep Scan Enabled: Mapping discovered paths for sub-directory escalation...")
         deep_paths = []
@@ -165,17 +169,16 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
                 deep_futures = {deep_executor.submit(check_individual_path, target_url, dp, scan_id): dp for dp in deep_paths}
                 for deep_future in concurrent.futures.as_completed(deep_futures):
                     deep_result = deep_future.result()
-                    if deep_result:
-                        # Append deep scan results to our main table array too!
-                        if deep_result['status'] == 200 or deep_result['status'] == 403 or deep_result['status'] == 301 or deep_result['status'] == 302:
-                            discovered_findings.append({
-                                "path": deep_result['path'],
-                                "status": deep_result['status'],
-                                "severity": "Deep Scan Finding"
-                            })
+                    if deep_result is not None:
+                        # Append sub-directory findings directly to your reporting tracking metrics arrays
+                        discovered_findings.append({
+                            "path": deep_result['path'],
+                            "status": deep_result['status'],
+                            "severity": "Deep Scan Finding"
+                        })
                         st.error(f"💥 **Deep Scan Alert:** `/{deep_result['path']}` — Status Code: **{deep_result['status']}**")
 
-    # Update database state to finished
+    # Mark master scan session status entry as complete
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE scans SET status = 'Completed' WHERE scan_id = ?", (scan_id,))
@@ -185,12 +188,11 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
     st.success("🟢 Scan processing sequence completed successfully!")
 
     # =========================================================
-    # 📊 ANALYSIS REPORT TABLE & DOWNLOAD GENERATOR (FIXED)
+    # 📊 GRAPHICAL ANALYSIS REPORT GRID AND DOWNLOAD HANDLER
     # =========================================================
     st.subheader("📊 Session Vulnerability Analysis Report")
     
-    if discovered_findings:
-        # Create a display data matrix mimicking your original table structure
+    if len(discovered_findings) > 0:
         report_data = []
         csv_content = "Discovered Path,HTTP Status Code,Risk Severity Level\n"
         
@@ -202,16 +204,16 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
             })
             csv_content += f"/{item['path']},{item['status']},{item['severity']}\n"
             
-        # 1. Render data block cleanly as a visual table matrix on screen
+        # Render the interactive dashboard data table layout component
         st.table(report_data)
         
-        # 2. Render direct download widget handler right on screen
+        # Deploy immediate file export handler block
         st.download_button(
             label="📥 Download Vulnerability Report (CSV)",
             data=csv_content,
             file_name=f"LethalScanner_Report_{scan_id}.csv",
             mime="text/csv",
-            help="Click to export this table data directly into Microsoft Excel or Sheets."
+            help="Click to export this table data directly into Microsoft Excel spreadsheets."
         )
     else:
         st.info("🟢 Clean Scan: No hidden or vulnerable directories were discovered on the target server.")
