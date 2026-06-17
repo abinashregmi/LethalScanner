@@ -329,21 +329,30 @@ else:
         st.session_state.role = "User"
         st.rerun()
         
-    menu = ["Run Scanner", "Vulnerability History"]
+    menu = ["Run Scanner"]
     if st.session_state.role == "Admin":
-        menu.append("Manage Wordlists (Admin Only)")
+        menu.extend(["Vulnerability History", "Manage Wordlists (Admin Only)"])
         
     choice = st.sidebar.selectbox("Navigation Menu", menu)
     
     if choice == "Run Scanner":
         st.header("Configure Web Scan")
-        target_url = st.text_input("Target URL", value="https://code.google.com/archive/p/bodgeit/")
+        if st.session_state.role == "Admin":
+            target_url = st.text_input("Target URL", value="http://regmiabinash72.com.np")
+        else:
+            target_url = st.text_input("Target URL", value="", placeholder="Enter the target URL")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            thread_selection = st.slider("Execution Threads", min_value=1, max_value=MAX_THREADS, value=4)
-        with col2:
-            deep_scan_enabled = st.checkbox("Enable Deep Scan", value=False)
+        if st.session_state.role == "Admin":
+            col1, col2 = st.columns(2)
+            with col1:
+                thread_selection = st.slider("Execution Threads", min_value=1, max_value=MAX_THREADS, value=4)
+            with col2:
+                deep_scan_enabled = st.checkbox("Enable Deep Scan", value=False)
+        else:
+            thread_selection = 4
+            deep_scan_enabled = True
+            st.info("🔒 User mode enforces Deep Scan with 4 threads.")
+            st.markdown("*This mode cannot access history or wordlist management.*")
             
         custom_wordlist_input = st.text_area("Custom Wordlist Paths (One entry per line - Optional)", placeholder="admin\nlogin.php\nimages")
         
