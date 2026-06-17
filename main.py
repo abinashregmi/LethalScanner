@@ -1,128 +1,235 @@
 import streamlit as st
-import requests
 import sqlite3
-import pandas as pd
-from concurrent.futures import ThreadPoolExecutor
+import requests
+import hashlib
 from datetime import datetime
-import os
 
-# --- DATABASE LAYER ---
-class DatabaseHandler:
-    def __init__(self, db_name="lethal_scanner.db"):
-        self.db_name = db_name
-        self.init_db()
+DB_NAME = "lethal_scanner.db"
 
-    def init_db(self):
-        with sqlite3.connect(self.db_name) as conn:
-            cursor = conn.cursor()
-            cursor.execute('''CREATE TABLE IF NOT EXISTS targets 
-                              (id INTEGER PRIMARY KEY, url TEXT, timestamp TEXT)''')
-            cursor.execute('''CREATE TABLE IF NOT EXISTS results 
-                              (id INTEGER PRIMARY KEY, target_id INTEGER, path TEXT, 
-                               status_code INTEGER, details TEXT, timestamp TEXT)''')
-            conn.commit()
+def init_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT DEFAULT 'User'
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS scans (
+            scan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            target_url TEXT NOT NULL,
+            scan_date TEXT NOT NULL,
+            status TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS findings (
+            finding_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scan_id INTEGER,
+            path TEXT NOT NULL,
+            http_status INTEGER NOT NULL,
+            severity TEXT NOT NULL,
+            FOREIGN KEY (scan_id) REFERENCES scans (scan_id)
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
-    def add_target(self, url):
-        with sqlite3.connect(self.db_name) as conn:
-            cursor = conn.cursor()
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cursor.execute("INSERT INTO targets (url, timestamp) VALUES (?, ?)", (url, ts))
-            conn.commit()
-            return cursor.lastrowid
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
-    def log_result(self, target_id, path, status, details="None"):
-        with sqlite3.connect(self.db_name) as conn:
-            cursor = conn.cursor()
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            cursor.execute("INSERT INTO results (target_id, path, status_code, details, timestamp) VALUES (?, ?, ?, ?, ?)",
-                           (target_id, path, status, details, ts))
-            conn.commit()
+def register_user(username, email, password, role="User"):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)",
+            (username, email, hash_password(password), role)
+        )
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
 
-    def get_all_results(self):
-        with sqlite3.connect(self.db_name) as conn:
-            return pd.read_sql_query("""
-                SELECT t.url as Target, r.path as Path, r.status_code as Status, r.details as Details, r.timestamp as Discovered
-                FROM results r JOIN targets t ON r.target_id = t.id
-                ORDER BY r.id DESC
-            """, conn)
+def login_user(username, password):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT user_id, username, role FROM users WHERE username = ? AND password = ?",
+        (username, hash_password(password))
+    )
+    user = cursor.fetchone()
+    conn.close()
+    return user
 
-# --- UI SETUP ---
-st.set_page_config(page_title="LethalScanner Pro", layout="wide")
-db = DatabaseHandler()
+def run_vulnerability_scan(target_url, wordlist, user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    scan_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    cursor.execute(
+        "INSERT INTO scans (user_id, target_url, scan_date, status) VALUES (?, ?, ?, ?)",
+        (user_id, target_url, scan_date, "Running")
+    )
+    scan_id = cursor.lastrowid
+    conn.commit()
+    
+    st.info(f"Scanning target: {target_url}...")
+    progress_bar = st.progress(0)
+    
+    paths_to_check = wordlist if wordlist else ["admin", "login", "config.php", "config.json", ".env", "database.sql", "backup.zip"]
+    findings_count = 0
+    
+    for idx, path in enumerate(paths_to_check):
+        base_url = target_url if target_url.endswith('/') else target_url + '/'
+        full_url = f"{base_url}{path}"
+        
+        try:
+            response = requests.get(full_url, timeout=5, allow_redirects=False)
+            status = response.status_code
+            
+            if status in [200, 403]:
+                severity = "High" if status == 200 and any(ext in path for ext in ['.env', 'config', 'sql', 'zip']) else "Medium"
+                
+                cursor.execute(
+                    "INSERT INTO findings (scan_id, path, http_status, severity) VALUES (?, ?, ?, ?)",
+                    (scan_id, path, status, severity)
+                )
+                conn.commit()
+                st.write(f"🔍 Found: `/{path}` - Status: **{status}** ({severity} Risk)")
+                findings_count += 1
+        except requests.RequestException:
+            pass
+            
+        progress_bar.progress((idx + 1) / len(paths_to_check))
+        
+    cursor.execute("UPDATE scans SET status = 'Completed' WHERE scan_id = ?", (scan_id,))
+    conn.commit()
+    conn.close()
+    st.success(f"Scan complete! Discovered {findings_count} paths.")
 
-st.title("🛡️ LethalScanner")
-st.markdown("### Full-Spectrum Web Vulnerability & Reconnaissance")
+def main():
+    st.set_page_config(page_title="LethalScanner", page_icon="🛡️")
+    init_db()
+    
+    st.title("🛡️ LethalScanner System")
+    st.caption("Automated Web Directory Reconnaissance & Information Disclosure Scanner")
+    
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+        st.session_state.user_id = None
+        st.session_state.username = ""
+        st.session_state.role = "User"
 
-# Sidebar
-st.sidebar.header("Scan Settings")
-target_url = st.sidebar.text_input("Target URL", value="http://localhost:8000")
-threads = st.sidebar.slider("Threads", 1, 50, 15)
-timeout = st.sidebar.number_input("Timeout", 1, 10, 3)
+    if not st.session_state.logged_in:
+        auth_mode = st.sidebar.radio("Sign In / Sign Up", ["Login", "Register"])
+        
+        if auth_mode == "Login":
+            st.subheader("Secure User Authentication")
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            if st.button("Sign In"):
+                user = login_user(username, password)
+                if user:
+                    st.session_state.logged_in = True
+                    st.session_state.user_id = user[0]
+                    st.session_state.username = user[1]
+                    st.session_state.role = user[2]
+                    st.success(f"Welcome back, {username}!")
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password.")
+                    
+        elif auth_mode == "Register":
+            st.subheader("Create a New Account")
+            new_username = st.text_input("Username")
+            new_email = st.text_input("Email Address")
+            new_password = st.text_input("Password", type="password")
+            role_selection = st.selectbox("Account Type", ["User", "Admin"])
+            
+            if st.button("Sign Up"):
+                if new_username and new_email and new_password:
+                    if register_user(new_username, new_email, new_password, role_selection):
+                        st.success("Account created successfully! Please switch to Login.")
+                    else:
+                        st.error("Username already exists.")
+                else:
+                    st.warning("Please fill in all fields.")
+        return
 
-# Expanded Wordlist
-wordlist_input = st.sidebar.text_area("Wordlist (One per line)", 
-    ".env\n.git/config\nadmin/\nconfig.php\nphpinfo.php\n.htaccess\n.ssh/id_rsa\nbackup.sql\nsetup.php\n/api/v1/users\n/console")
-paths = [p.strip() for p in wordlist_input.split('\n') if p.strip()]
+    st.sidebar.markdown(f"**Logged in as:** {st.session_state.username} (`{st.session_state.role}`)")
+    if st.sidebar.button("Logout"):
+        st.session_state.logged_in = False
+        st.session_state.user_id = None
+        st.session_state.username = ""
+        st.session_state.role = "User"
+        st.rerun()
 
-col1, col2 = st.columns([1, 2])
+    menu = ["Run Scanner", "Vulnerability History"]
+    if st.session_state.role == "Admin":
+        menu.append("Manage Wordlists (Admin Only)")
+        
+    choice = st.sidebar.selectbox("Navigation Menu", menu)
 
-with col1:
-    st.subheader("Scanner Control")
-    if st.button("^_____^ Execute Deep Scan", use_container_width=True):
-        if not target_url.startswith("http"):
-            st.error("Invalid URL format.")
+    if choice == "Run Scanner":
+        st.header("Configure Web Scan")
+        target_url = st.text_input("Target URL (e.g., https://example.com)")
+        custom_wordlist_input = st.text_area("Custom Wordlist Paths (One entry per line - Optional)", placeholder="admin\nconfig.php\n.env")
+        
+        if st.button("Launch Lethal Scanner"):
+            if target_url:
+                if not (target_url.startswith("http://") or target_url.startswith("https://")):
+                    st.error("Please include http:// or https:// protocol identifier in the target URL.")
+                else:
+                    wordlist = [line.strip() for line in custom_wordlist_input.split("\n") if line.strip()] if custom_wordlist_input else None
+                    run_vulnerability_scan(target_url, wordlist, st.session_state.user_id)
+            else:
+                st.warning("Target URL field cannot be empty.")
+
+    elif choice == "Vulnerability History":
+        st.header("Structured Reports Engine")
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        
+        if st.session_state.role == "Admin":
+            cursor.execute("SELECT scans.scan_id, users.username, scans.target_url, scans.scan_date, scans.status FROM scans JOIN users ON scans.user_id = users.user_id")
         else:
-            target_id = db.add_target(target_url)
-            progress = st.progress(0)
-            status_msg = st.empty()
-            found = 0
-
-            def scan_task(path):
-                url = f"{target_url.rstrip('/')}/{path.lstrip('/')}"
-                try:
-                    # We use a real User-Agent to bypass simple anti-bot filters
-                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) LethalScanner/1.1'}
-                    resp = requests.get(url, timeout=timeout, headers=headers, allow_redirects=False)
+            cursor.execute("SELECT scan_id, 'Me', target_url, scan_date, status FROM scans WHERE user_id = ?", (st.session_state.user_id,))
+            
+        scans_data = cursor.fetchall()
+        conn.close()
+        
+        if scans_data:
+            for scan in scans_data:
+                with st.expander(f"🌐 {scan[2]} | Executed By: {scan[1]} | Date: {scan[3]}"):
+                    st.write(f"**Scan Status:** {scan[4]}")
                     
-                    status = resp.status_code
-                    detail = "Potential Info Leak"
+                    conn = sqlite3.connect(DB_NAME)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT path, http_status, severity FROM findings WHERE scan_id = ?", (scan[0],))
+                    findings = cursor.fetchall()
+                    conn.close()
                     
-                    # Vulnerability Logic
-                    # 200: Exposed file | 403: Forbidden but exists | 500: Server failure/Debug leak | 301: Redirect to sensitive area
-                    if status in [200, 403, 401, 301, 302, 500]:
-                        # Check for Technology Leakage in headers
-                        tech = resp.headers.get('X-Powered-By', resp.headers.get('Server', 'Generic'))
-                        detail = f"Tech: {tech}"
-                        
-                        db.log_result(target_id, path, status, detail)
-                        return True
-                except:
-                    pass
-                return False
+                    if findings:
+                        for f in findings:
+                            st.markdown(f"- `/{f[0]}` → HTTP Status **{f[1]}** | Severity: **{f[2]}**")
+                    else:
+                        st.info("No vulnerable directories or paths detected for this session.")
+        else:
+            st.info("No historical scan parameters found in database records.")
 
-            with ThreadPoolExecutor(max_workers=threads) as executor:
-                for i, hit in enumerate(executor.map(scan_task, paths)):
-                    if hit: found += 1
-                    progress.progress((i + 1) / len(paths))
-                    status_msg.text(f"Processing:")
+    elif choice == "Manage Wordlists (Admin Only)":
+        st.header("Admin Rule Engine")
+        st.info("As an Admin user, you can configure system rules here.")
+        st.success("Access Granted.")
 
-            st.success(f"Scan Finished. {found} Vulnerabilities logged.")
-
-with col2:
-    st.subheader("Vulnerability Discovery Log")
-    df = db.get_all_results()
-    if not df.empty:
-        def style_rows(row):
-            if row.Status == 200: 
-                return ['background-color: #1b4332; color: #d4edda'] * len(row) # Dark Green (Success)
-            if row.Status == 500: 
-                return ['background-color: #721c24; color: #f8d7da'] * len(row) # Dark Red (Danger)
-            if row.Status == 403: 
-                return ['background-color: #856404; color: #fff3cd'] * len(row) # Dark Gold/Ochre (Warning)
-                return ['color: #ffffff'] * len(row) # Default White text
-
-            return [''] * len(row)
-
-        st.dataframe(df.style.apply(style_rows, axis=1), use_container_width=True)
-    else:
-        st.info("No vulnerabilities found in database.")
+if __name__ == "__main__":
+    main()
