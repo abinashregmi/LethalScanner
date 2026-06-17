@@ -122,7 +122,7 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
     conn.commit()
     conn.close()
     
-    st.info(f"*_* Initializing Threaded Scan on: {target_url} utilizing {thread_count} worker threads...")
+    st.info(f"🚀 Initializing Threaded Scan on: {target_url} utilizing {thread_count} worker threads...")
     
     default_paths = ["admin", "login.php", "images", "secure", "config.php", "vulnerable", "db", ".env", "backup.zip"]
     paths_to_scan = wordlist if wordlist else default_paths
@@ -139,7 +139,7 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
             if result:
                 discovered_findings.append(result)
                 
-                # Visual Alert Boxes inside the real-time panel logger
+                # Live alert boxes on screen
                 if result['severity'] == "High Risk":
                     st.error(f"🔴 **Vulnerability Found:** `/{result['path']}` — HTTP Status: **{result['status']}** ({result['severity']})")
                 elif "Protected" in result['severity'] or result['severity'] == "Medium":
@@ -149,13 +149,12 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
                     
             progress_bar.progress((idx + 1) / len(paths_to_scan))
 
-    # Recursive sub-directory spidering logic
+    # Recursive deep scan block
     if is_deep_scan and discovered_findings:
         st.warning("🕵️ Deep Scan Enabled: Mapping discovered paths for sub-directory escalation...")
         deep_paths = []
         
         for item in discovered_findings:
-            # FIXED: Explicit comparison for recursive step
             if item["status"] == 200 or item["status"] == 301 or item["status"] == 302:
                 if "." not in item["path"]:
                     for sub_path in default_paths:
@@ -167,46 +166,55 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
                 for deep_future in concurrent.futures.as_completed(deep_futures):
                     deep_result = deep_future.result()
                     if deep_result:
+                        # Append deep scan results to our main table array too!
+                        if deep_result['status'] == 200 or deep_result['status'] == 403 or deep_result['status'] == 301 or deep_result['status'] == 302:
+                            discovered_findings.append({
+                                "path": deep_result['path'],
+                                "status": deep_result['status'],
+                                "severity": "Deep Scan Finding"
+                            })
                         st.error(f"💥 **Deep Scan Alert:** `/{deep_result['path']}` — Status Code: **{deep_result['status']}**")
 
+    # Update database state to finished
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE scans SET status = 'Completed' WHERE scan_id = ?", (scan_id,))
     conn.commit()
     conn.close()
     
-    st.success("🟢 Scan processing sequence completed successfully! All findings persisted to database records.")
-    st.subheader("Session Vulnerability Analysis Report:)")
+    st.success("🟢 Scan processing sequence completed successfully!")
 
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("SELECT path, http_status, severity FROM findings WHERE scan_id = ?", (scan_id,))
-    session_findings = cursor.fetchall()
-    conn.close()
-
-    if session_findings:
+    # =========================================================
+    # 📊 ANALYSIS REPORT TABLE & DOWNLOAD GENERATOR (FIXED)
+    # =========================================================
+    st.subheader("📊 Session Vulnerability Analysis Report")
+    
+    if discovered_findings:
+        # Create a display data matrix mimicking your original table structure
         report_data = []
-        csv_content = "Discovered Path, HTTP Status Code, Risk Severity Level\n"
-
-        for item in session_findings:
+        csv_content = "Discovered Path,HTTP Status Code,Risk Severity Level\n"
+        
+        for item in discovered_findings:
             report_data.append({
-                "Discovered Path": f"/{item}",
-                "HTTP Status Code": item,
-                "Risk Severity Level" : item
+                "Discovered Path": f"/{item['path']}",
+                "HTTP Status Code": int(item['status']),
+                "Risk Severity Level": str(item['severity'])
             })
-            csv_content += f"/{item},{item}, {item}\n"
+            csv_content += f"/{item['path']},{item['status']},{item['severity']}\n"
+            
+        # 1. Render data block cleanly as a visual table matrix on screen
         st.table(report_data)
-
+        
+        # 2. Render direct download widget handler right on screen
         st.download_button(
-            label = "Download Vulnerability Report (CSV)",
-            data = csv_content,
+            label="📥 Download Vulnerability Report (CSV)",
+            data=csv_content,
             file_name=f"LethalScanner_Report_{scan_id}.csv",
             mime="text/csv",
             help="Click to export this table data directly into Microsoft Excel or Sheets."
-
         )
-    else :
-        st.info("Clean Scan: No hidden or vulnerable directories were discovered on the target server.")
+    else:
+        st.info("🟢 Clean Scan: No hidden or vulnerable directories were discovered on the target server.")
 
 
 # --- APPLICATION INTERFACE ENGINE ---
