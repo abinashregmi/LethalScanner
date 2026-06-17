@@ -129,7 +129,48 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
     
     st.info(f"🚀 Initializing Threaded Scan on: {target_url} utilizing {thread_count} worker threads...")
     
-    default_paths = ["admin", "login.php", "images", "secure", "config.php", "vulnerable", "db", ".env", "backup.zip"]
+    default_paths = [
+        "admin",
+        "administrator",
+        "wp-admin",
+        "login",
+        "login.html",
+        "signin",
+        "dashboard",
+        "panel",
+        "controlpanel",
+        "cp",
+        "manage",
+        "manager",
+        "config",
+        "configuration",
+        "config.php",
+        "config.bak",
+        "backup",
+        "backup.zip",
+        "backups",
+        "old",
+        "db",
+        "database",
+        "database.sql",
+        ".env",
+        ".git",
+        "api",
+        "v1",
+        "v2",
+        "dev",
+        "development",
+        "test",
+        "testing",
+        "staging",
+        "debug",
+        "upload",
+        "uploads",
+        "files",
+        "assets",
+        "include",
+        "includes"
+    ]
     paths_to_scan = wordlist if wordlist else default_paths
     
     # Create the thread-safe Queue to capture background thread hits
@@ -141,16 +182,7 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
         
         progress_bar = st.progress(0)
         for idx, future in enumerate(concurrent.futures.as_completed(futures)):
-            result = future.result()
-            if result:
-                # Print live alert lines on user dashboard during execution
-                if result['severity'] == "High Risk":
-                    st.error(f"🔴 **Vulnerability Found:** `/{result['path']}` — HTTP Status: **{result['status']}** ({result['severity']})")
-                elif "Protected" in result['severity'] or result['severity'] == "Medium":
-                    st.warning(f"🟡 **Directory Noted:** `/{result['path']}` — HTTP Status: **{result['status']}** ({result['severity']})")
-                else:
-                    st.info(f"🔵 **Redirect Logged:** `/{result['path']}` — HTTP Status: **{result['status']}** ({result['severity']})")
-                    
+            _ = future.result()
             progress_bar.progress((idx + 1) / len(paths_to_scan))
 
     # Empty the Queue entries into a structured memory list for our table widget
@@ -173,9 +205,7 @@ def run_vulnerability_scan(target_url, wordlist, user_id, is_deep_scan, thread_c
             with concurrent.futures.ThreadPoolExecutor(max_workers=thread_count) as deep_executor:
                 deep_futures = {deep_executor.submit(check_individual_path, target_url, dp, scan_id, deep_queue): dp for dp in deep_paths}
                 for deep_future in concurrent.futures.as_completed(deep_futures):
-                    deep_result = deep_future.result()
-                    if deep_result:
-                        st.error(f"💥 **Deep Scan Alert:** `/{deep_result['path']}` — Status Code: **{deep_result['status']}**")
+                    _ = deep_future.result()
             
             while not deep_queue.empty():
                 discovered_findings.append(deep_queue.get())
@@ -307,7 +337,7 @@ else:
     
     if choice == "Run Scanner":
         st.header("Configure Web Scan")
-        target_url = st.text_input("Target URL", value="http://vulnweb.com")
+        target_url = st.text_input("Target URL", value="https://code.google.com/archive/p/bodgeit/")
         
         col1, col2 = st.columns(2)
         with col1:
