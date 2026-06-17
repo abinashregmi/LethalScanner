@@ -68,7 +68,7 @@ def login_user(username, password):
     )
     user = cursor.fetchone()
     conn.close()
-    return user
+    return user  # Returns tuple: (user_id, username, role) or None
 
 def run_vulnerability_scan(target_url, wordlist, user_id):
     conn = sqlite3.connect(DB_NAME)
@@ -93,10 +93,12 @@ def run_vulnerability_scan(target_url, wordlist, user_id):
         full_url = f"{base_url}{path}"
         
         try:
+            # allow_redirects=False captures the direct response code from the server
             response = requests.get(full_url, timeout=5, allow_redirects=False)
             status = response.status_code
             
-            if status in [200, 403]:
+            # Scans for 200 OK and 403 Forbidden as declared in your project proposal
+            if status in:
                 severity = "High" if status == 200 and any(ext in path for ext in ['.env', 'config', 'sql', 'zip']) else "Medium"
                 
                 cursor.execute(
@@ -134,37 +136,39 @@ def main():
         
         if auth_mode == "Login":
             st.subheader("Secure User Authentication")
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
+            username = st.text_input("Username", key="login_user_input")
+            password = st.text_input("Password", type="password", key="login_pass_input")
             if st.button("Sign In"):
                 user = login_user(username, password)
                 if user:
+                    # Correctly unpacking database tuple indices: 0=user_id, 1=username, 2=role
                     st.session_state.logged_in = True
                     st.session_state.user_id = user[0]
                     st.session_state.username = user[1]
                     st.session_state.role = user[2]
-                    st.success(f"Welcome back, {username}!")
+                    st.success(f"Welcome back, {st.session_state.username}!")
                     st.rerun()
                 else:
                     st.error("Invalid username or password.")
                     
         elif auth_mode == "Register":
             st.subheader("Create a New Account")
-            new_username = st.text_input("Username")
-            new_email = st.text_input("Email Address")
-            new_password = st.text_input("Password", type="password")
-            role_selection = st.selectbox("Account Type", ["User", "Admin"])
+            new_username = st.text_input("Username", key="reg_user_input")
+            new_email = st.text_input("Email Address", key="reg_email_input")
+            new_password = st.text_input("Password", type="password", key="reg_pass_input")
+            role_selection = st.selectbox("Account Type", ["User", "Admin"], key="reg_role_input")
             
             if st.button("Sign Up"):
                 if new_username and new_email and new_password:
                     if register_user(new_username, new_email, new_password, role_selection):
-                        st.success("Account created successfully! Please switch to Login.")
+                        st.success("Account created successfully! Switch the sidebar to 'Login' to sign in.")
                     else:
                         st.error("Username already exists.")
                 else:
                     st.warning("Please fill in all fields.")
         return
 
+    # --- PRIVILEGED ENVIRONMENT MENU ---
     st.sidebar.markdown(f"**Logged in as:** {st.session_state.username} (`{st.session_state.role}`)")
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
@@ -200,8 +204,10 @@ def main():
         cursor = conn.cursor()
         
         if st.session_state.role == "Admin":
+            # Admin Query: Joins users table to show exactly who ran each scan across the app
             cursor.execute("SELECT scans.scan_id, users.username, scans.target_url, scans.scan_date, scans.status FROM scans JOIN users ON scans.user_id = users.user_id")
         else:
+            # User Query: Strictly limits results to the logged-in user's data
             cursor.execute("SELECT scan_id, 'Me', target_url, scan_date, status FROM scans WHERE user_id = ?", (st.session_state.user_id,))
             
         scans_data = cursor.fetchall()
@@ -209,6 +215,7 @@ def main():
         
         if scans_data:
             for scan in scans_data:
+                # scan indexes: 0=scan_id, 1=username, 2=target_url, 3=scan_date, 4=status
                 with st.expander(f"🌐 {scan[2]} | Executed By: {scan[1]} | Date: {scan[3]}"):
                     st.write(f"**Scan Status:** {scan[4]}")
                     
@@ -228,8 +235,3 @@ def main():
 
     elif choice == "Manage Wordlists (Admin Only)":
         st.header("Admin Rule Engine")
-        st.info("As an Admin user, you can configure system rules here.")
-        st.success("Access Granted.")
-
-if __name__ == "__main__":
-    main()
