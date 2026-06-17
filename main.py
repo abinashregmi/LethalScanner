@@ -256,18 +256,19 @@ else:
         cursor.execute("SELECT path, http_status, severity FROM findings WHERE scan_id = ?", (scan[0],))
         findings = cursor.fetchall()
         conn.close()
-        
         if findings:
-            for f in findings:
-                st.markdown(f"- `/{f[0]}` -> HTTP Status **{f[1]}** | Severity: **{f[2]}**")
+                        for f in findings:
+                            st.markdown(f"- `/{f[0]}` -> HTTP Status **{f[1]}** | Severity: **{f[2]}**")
         else:
-            st.info("No vulnerable directories or paths detected for this session.")
-            
-    else:
-        st.info("No historical scan parameters found in database records.")
+                        st.info("No vulnerable directories or paths detected for this session.")
+        else:
+            st.info("No historical scan parameters found in database records.")
 
-# 3. PRIVILEGED RULE CONFIGURATION ENGINE
+    # 3. PRIVILEGED RULE CONFIGURATION ENGINE
     elif choice == "Manage Wordlists (Admin Only)":
         st.header("Admin Rule Engine")
         st.info("Welcome to the Admin workspace. You have access to configure system-wide parameters.")
         st.success("Access Granted.")
+
+        
+        
