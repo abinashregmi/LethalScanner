@@ -94,7 +94,8 @@ def run_vulnerability_scan(target_url, wordlist, user_id):
     st.info(f"Scanning target: {target_url}...")
     progress_bar = st.progress(0)
     
-    paths_to_check = wordlist if wordlist else ["admin", "login", "config.php", "config.json", ".env", "database.sql", "backup.zip"]
+    # Comprehensive default wordlist containing directories that exist on testphp.vulnweb.com
+    paths_to_check = wordlist if wordlist else ["admin", "login.php", "images", "secure", "config.php", "vulnerable", "db"]
     findings_count = 0
     
     for idx, path in enumerate(paths_to_check):
@@ -102,19 +103,29 @@ def run_vulnerability_scan(target_url, wordlist, user_id):
         full_url = f"{base_url}{path}"
         
         try:
-            response = requests.get(full_url, timeout=5, allow_redirects=False)
+            # Set a standard User-Agent header so the target server doesn't block the Python request
+            headers = {"User-Agent": "LethalScanner/1.0"}
+            response = requests.get(full_url, headers=headers, timeout=7, allow_redirects=False)
             status = response.status_code
             
-            # Check for 200 (Accessible) or 403 (Forbidden/Exists)
-            if status == 200 or status == 403:
-                severity = "High" if status == 200 and any(ext in path for ext in ['.env', 'config', 'sql', 'zip']) else "Medium"
+            # === UPDATED SECURITY RULES ENGINE ===
+            # Captures 200 OK, 403 Forbidden, and 301/302 Redirect confirmations
+            if status == 200 or status == 403 or status == 301 or status == 302:
+                
+                # Determine Severity Profile
+                if status == 200:
+                    severity = "High Risk" if any(ext in path for ext in ['.env', 'config', 'sql', 'zip', '.php']) else "Medium"
+                elif status == 403:
+                    severity = "Medium (Protected Path)"
+                else:
+                    severity = "Low (Exposed Redirect)"
                 
                 cursor.execute(
                     "INSERT INTO findings (scan_id, path, http_status, severity) VALUES (?, ?, ?, ?)",
                     (scan_id, path, status, severity)
                 )
                 conn.commit()
-                st.write(f"🔍 Found: `/{path}` - Status: **{status}** ({severity} Risk)")
+                st.write(f"🔍 **Found:** `/{path}` — Status Code: **{status}** ({severity})")
                 findings_count += 1
         except requests.RequestException:
             pass
@@ -126,21 +137,20 @@ def run_vulnerability_scan(target_url, wordlist, user_id):
     conn.close()
     st.success(f"Scan complete! Discovered {findings_count} paths.")
 
-# --- MAIN APPLICATION START ---
+# --- APPLICATION DESKTOP INITIALIZATION ---
 st.set_page_config(page_title="LethalScanner", page_icon="🛡️")
 init_db()
 
 st.title("🛡️ LethalScanner System")
 st.caption("Automated Web Directory Reconnaissance & Information Disclosure Scanner")
 
-# Session State Initialization
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.user_id = None
     st.session_state.username = ""
     st.session_state.role = "User"
 
-# --- LOGIN / REGISTER VIEW ---
+# --- LOGIN / REGISTER ROUTING BAR ---
 if not st.session_state.logged_in:
     auth_mode = st.sidebar.radio("Sign In / Sign Up", ["Login", "Register"])
     
@@ -151,7 +161,6 @@ if not st.session_state.logged_in:
         if st.button("Sign In"):
             user = login_user(username, password)
             if user:
-                # user is a tuple: (user_id, username, role)
                 st.session_state.logged_in = True
                 st.session_state.user_id = user[0]
                 st.session_state.username = user[1]
@@ -167,11 +176,9 @@ if not st.session_state.logged_in:
         new_email = st.text_input("Email Address", key="reg_email_input")
         new_password = st.text_input("Password", type="password", key="reg_pass_input")
         
-        # Check for existing admin
         conn = sqlite3.connect(DB_NAME)
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'Admin'")
-        # FIXED: Access the first element of the tuple safely
         row = cursor.fetchone()
         admin_count = row[0] if row else 0
         conn.close()
@@ -188,14 +195,14 @@ if not st.session_state.logged_in:
         if st.button("Sign Up"):
             if new_username and new_email and new_password:
                 if register_user(new_username, new_email, new_password, role_selection):
-                    st.success("✨ Account created! Please switch to Login.")
+                    st.success("✨ Account created! Please switch sidebar to Login.")
                     st.rerun()
                 else:
                     st.error("Username already exists.")
             else:
                 st.warning("Please fill in all fields.")
 
-# --- LOGGED IN VIEW ---
+# --- PRIVATE INSIDE WORKSPACE AREA ---
 else:
     st.sidebar.markdown(f"**Logged in as:** {st.session_state.username} (`{st.session_state.role}`)")
     if st.sidebar.button("Logout"):
@@ -213,8 +220,8 @@ else:
 
     if choice == "Run Scanner":
         st.header("Configure Web Scan")
-        target_url = st.text_input("Target URL (e.g., https://example.com)")
-        custom_wordlist_input = st.text_area("Custom Wordlist Paths (One entry per line)", placeholder="admin\nconfig.php")
+        target_url = st.text_input("Target URL (e.g., http://testphp.vulnweb.com)")
+        custom_wordlist_input = st.text_area("Custom Wordlist Paths (One entry per line)", placeholder="admin\nlogin.php\nimages")
         
         if st.button("Launch Lethal Scanner"):
             if target_url:
@@ -241,27 +248,24 @@ else:
         
         if scans_data:
             for scan in scans_data:
-                # scan tuple: (id, username, url, date, status)
-                # Indexes: 0=id, 1=username, 2=url, 3=date, 4=status
                 with st.expander(f"🌐 {scan[2]} | Executed By: {scan[1]} | Date: {scan[3]}"):
                     st.write(f"**Scan Status:** {scan[4]}")
                     
                     conn = sqlite3.connect(DB_NAME)
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT path, http_status, severity FROM findings WHERE scan_id = ?", (scan[0],))
-                    findings = cursor.fetchall()
-                    conn.close()
-                    
-                    if findings:
-                        for f in findings:
-                            # f tuple: (path, http_status, severity)
-                            st.markdown(f"- `/{f[0]}` -> HTTP Status **{f[1]}** | Severity: **{f[2]}**")
-                    else:
-                        st.info("No vulnerable directories or paths detected for this session.")
+        cursor = conn.cursor()
+        cursor.execute("SELECT path, http_status, severity FROM findings WHERE scan_id = ?", (scan[0],))
+        findings = cursor.fetchall()
+        conn.close()
+        
+        if findings:
+            for f in findings:
+                st.markdown(f"- `/{f[0]}` -> HTTP Status **{f[1]}** | Severity: **{f[2]}**")
         else:
-            st.info("No historical scan parameters found in database records.")
+            st.info("No vulnerable directories or paths detected for this session.")
+    else:
+        st.info("No historical data found.")
 
-    elif choice == "Manage Wordlists (Admin Only)":
-        st.header("Admin Rule Engine")
-        st.info("Welcome to the Admin workspace. You have access to configure system-wide parameters.")
-        st.success("Access Granted.")
+elif choice == "Manage Wordlists (Admin Only)":
+    st.header("Admin Rule Engine")
+    st.info("Welcome to the Admin workspace. You have access to configure system-wide parameters.")
+    st.success("Access Granted.")
