@@ -4,11 +4,15 @@ import requests
 import hashlib
 from datetime import datetime
 
+# --- CONFIGURATION ---
 DB_NAME = "lethal_scanner.db"
 
+# --- DATABASE SETUP ---
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
+    # Users Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -18,6 +22,8 @@ def init_db():
             role TEXT DEFAULT 'User'
         )
     ''')
+    
+    # Scans Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS scans (
             scan_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,6 +34,8 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
     ''')
+    
+    # Findings Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS findings (
             finding_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,6 +49,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+# --- HELPER FUNCTIONS ---
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -68,7 +77,7 @@ def login_user(username, password):
     )
     user = cursor.fetchone()
     conn.close()
-    return user  # Returns tuple: (user_id, username, role) or None
+    return user 
 
 def run_vulnerability_scan(target_url, wordlist, user_id):
     conn = sqlite3.connect(DB_NAME)
@@ -93,12 +102,11 @@ def run_vulnerability_scan(target_url, wordlist, user_id):
         full_url = f"{base_url}{path}"
         
         try:
-            # allow_redirects=False captures the direct response code from the server
             response = requests.get(full_url, timeout=5, allow_redirects=False)
             status = response.status_code
             
-            # Scans for 200 OK and 403 Forbidden as declared in your project proposal
-            if status in:
+            # Check for 200 (Accessible) or 403 (Forbidden/Exists)
+            if status == 200 or status == 403:
                 severity = "High" if status == 200 and any(ext in path for ext in ['.env', 'config', 'sql', 'zip']) else "Medium"
                 
                 cursor.execute(
@@ -118,57 +126,77 @@ def run_vulnerability_scan(target_url, wordlist, user_id):
     conn.close()
     st.success(f"Scan complete! Discovered {findings_count} paths.")
 
-def main():
-    st.set_page_config(page_title="LethalScanner", page_icon="🛡️")
-    init_db()
-    
-    st.title("🛡️ LethalScanner System")
-    st.caption("Automated Web Directory Reconnaissance & Information Disclosure Scanner")
-    
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
-        st.session_state.user_id = None
-        st.session_state.username = ""
-        st.session_state.role = "User"
+# --- MAIN APPLICATION START ---
+st.set_page_config(page_title="LethalScanner", page_icon="🛡️")
+init_db()
 
-    if not st.session_state.logged_in:
-        auth_mode = st.sidebar.radio("Sign In / Sign Up", ["Login", "Register"])
+st.title("🛡️ LethalScanner System")
+st.caption("Automated Web Directory Reconnaissance & Information Disclosure Scanner")
+
+# Session State Initialization
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_id = None
+    st.session_state.username = ""
+    st.session_state.role = "User"
+
+# --- LOGIN / REGISTER VIEW ---
+if not st.session_state.logged_in:
+    auth_mode = st.sidebar.radio("Sign In / Sign Up", ["Login", "Register"])
+    
+    if auth_mode == "Login":
+        st.subheader("Secure User Authentication")
+        username = st.text_input("Username", key="login_user_input")
+        password = st.text_input("Password", type="password", key="login_pass_input")
+        if st.button("Sign In"):
+            user = login_user(username, password)
+            if user:
+                # user is a tuple: (user_id, username, role)
+                st.session_state.logged_in = True
+                st.session_state.user_id = user[0]
+                st.session_state.username = user[1]
+                st.session_state.role = user[2]
+                st.success(f"Welcome back, {st.session_state.username}!")
+                st.rerun()
+            else:
+                st.error("Invalid username or password.")
+                
+    elif auth_mode == "Register":
+        st.subheader("Create a New Account")
+        new_username = st.text_input("Username", key="reg_user_input")
+        new_email = st.text_input("Email Address", key="reg_email_input")
+        new_password = st.text_input("Password", type="password", key="reg_pass_input")
         
-        if auth_mode == "Login":
-            st.subheader("Secure User Authentication")
-            username = st.text_input("Username", key="login_user_input")
-            password = st.text_input("Password", type="password", key="login_pass_input")
-            if st.button("Sign In"):
-                user = login_user(username, password)
-                if user:
-                    # Correctly unpacking database tuple indices: 0=user_id, 1=username, 2=role
-                    st.session_state.logged_in = True
-                    st.session_state.user_id = user[0]
-                    st.session_state.username = user[1]
-                    st.session_state.role = user[2]
-                    st.success(f"Welcome back, {st.session_state.username}!")
+        # Check for existing admin
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'Admin'")
+        # FIXED: Access the first element of the tuple safely
+        row = cursor.fetchone()
+        admin_count = row[0] if row else 0
+        conn.close()
+        
+        if admin_count > 0:
+            available_roles = ["User"]
+            st.info("ℹ️ Admin account already exists. Registration restricted to 'User'.")
+        else:
+            available_roles = ["User", "Admin"]
+            st.warning("⚠️ No admin found. You can register as the first 'Admin'.")
+        
+        role_selection = st.selectbox("Account Type", available_roles, key="reg_role_input")
+        
+        if st.button("Sign Up"):
+            if new_username and new_email and new_password:
+                if register_user(new_username, new_email, new_password, role_selection):
+                    st.success("✨ Account created! Please switch to Login.")
                     st.rerun()
                 else:
-                    st.error("Invalid username or password.")
-                    
-        elif auth_mode == "Register":
-            st.subheader("Create a New Account")
-            new_username = st.text_input("Username", key="reg_user_input")
-            new_email = st.text_input("Email Address", key="reg_email_input")
-            new_password = st.text_input("Password", type="password", key="reg_pass_input")
-            role_selection = st.selectbox("Account Type", ["User", "Admin"], key="reg_role_input")
-            
-            if st.button("Sign Up"):
-                if new_username and new_email and new_password:
-                    if register_user(new_username, new_email, new_password, role_selection):
-                        st.success("Account created successfully! Switch the sidebar to 'Login' to sign in.")
-                    else:
-                        st.error("Username already exists.")
-                else:
-                    st.warning("Please fill in all fields.")
-        return
+                    st.error("Username already exists.")
+            else:
+                st.warning("Please fill in all fields.")
 
-    # --- PRIVILEGED ENVIRONMENT MENU ---
+# --- LOGGED IN VIEW ---
+else:
     st.sidebar.markdown(f"**Logged in as:** {st.session_state.username} (`{st.session_state.role}`)")
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
@@ -186,7 +214,7 @@ def main():
     if choice == "Run Scanner":
         st.header("Configure Web Scan")
         target_url = st.text_input("Target URL (e.g., https://example.com)")
-        custom_wordlist_input = st.text_area("Custom Wordlist Paths (One entry per line - Optional)", placeholder="admin\nconfig.php\n.env")
+        custom_wordlist_input = st.text_area("Custom Wordlist Paths (One entry per line)", placeholder="admin\nconfig.php")
         
         if st.button("Launch Lethal Scanner"):
             if target_url:
@@ -204,10 +232,8 @@ def main():
         cursor = conn.cursor()
         
         if st.session_state.role == "Admin":
-            # Admin Query: Joins users table to show exactly who ran each scan across the app
             cursor.execute("SELECT scans.scan_id, users.username, scans.target_url, scans.scan_date, scans.status FROM scans JOIN users ON scans.user_id = users.user_id")
         else:
-            # User Query: Strictly limits results to the logged-in user's data
             cursor.execute("SELECT scan_id, 'Me', target_url, scan_date, status FROM scans WHERE user_id = ?", (st.session_state.user_id,))
             
         scans_data = cursor.fetchall()
@@ -215,7 +241,8 @@ def main():
         
         if scans_data:
             for scan in scans_data:
-                # scan indexes: 0=scan_id, 1=username, 2=target_url, 3=scan_date, 4=status
+                # scan tuple: (id, username, url, date, status)
+                # Indexes: 0=id, 1=username, 2=url, 3=date, 4=status
                 with st.expander(f"🌐 {scan[2]} | Executed By: {scan[1]} | Date: {scan[3]}"):
                     st.write(f"**Scan Status:** {scan[4]}")
                     
@@ -227,7 +254,8 @@ def main():
                     
                     if findings:
                         for f in findings:
-                            st.markdown(f"- `/{f[0]}` → HTTP Status **{f[1]}** | Severity: **{f[2]}**")
+                            # f tuple: (path, http_status, severity)
+                            st.markdown(f"- `/{f[0]}` -> HTTP Status **{f[1]}** | Severity: **{f[2]}**")
                     else:
                         st.info("No vulnerable directories or paths detected for this session.")
         else:
@@ -235,7 +263,5 @@ def main():
 
     elif choice == "Manage Wordlists (Admin Only)":
         st.header("Admin Rule Engine")
-st.info("Welcome to the Admin workspace. You have access to configure system-wide parameters.")
-st.success("Access Granted.")
-if name == "main":
-    main()
+        st.info("Welcome to the Admin workspace. You have access to configure system-wide parameters.")
+        st.success("Access Granted.")
