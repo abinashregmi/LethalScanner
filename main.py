@@ -235,3 +235,7 @@ def main():
 
     elif choice == "Manage Wordlists (Admin Only)":
         st.header("Admin Rule Engine")
+st.info("Welcome to the Admin workspace. You have access to configure system-wide parameters.")
+st.success("Access Granted.")
+if name == "main":
+    main()
