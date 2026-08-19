@@ -52,8 +52,8 @@ streamlit run app.py
 
 | Scan Configuration | Vulnerability Reports |
 |---|---|
-<img width="1448" height="848" alt="image" src="https://github.com/user-attachments/assets/7d8b0894-ea85-435b-9903-c6733edfb726" />
-<img width="909" height="661" alt="image" src="https://github.com/user-attachments/assets/84f9c0fe-b3a4-400f-b846-6a0eef9bd4d1" />
+<img width="1448" height="848" alt="LethalScanner Configuration Dashboard Interface" src="https://github.com/user-attachments/assets/7d8b0894-ea85-435b-9903-c6733edfb726" />
+<img width="909" height="661" alt="Discovered Vulnerabilities Scanning Report Table" src="https://github.com/user-attachments/assets/84f9c0fe-b3a4-400f-b846-6a0eef9bd4d1" />
 
 
 ---
