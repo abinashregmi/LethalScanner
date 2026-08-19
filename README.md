@@ -46,8 +46,6 @@ streamlit run main.py
 
 ## 📸 Dashboard Preview
 
-| Scan Configuration | Vulnerability Reports |
-|---|---|
 <img src="https://github.com/user-attachments/assets/7d8b0894-ea85-435b-9903-c6733edfb726" alt="LethalScanner Configuration Dashboard Interface" width="48%" style="display:inline-block; margin-right:2%;" /> <img src="https://github.com/user-attachments/assets/84f9c0fe-b3a4-400f-b846-6a0eef9bd4d1" alt="Discovered Vulnerabilities Scanning Report Table" width="48%" style="display:inline-block;" />
 
 
