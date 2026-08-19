@@ -29,8 +29,7 @@ To run LethalScanner locally on your machine, follow these simple steps:
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com
-cd LethalScanner
+git clone https://github.com/abinashregmi/LethalScanner.git
 ```
 
 ### 2. Install Dependencies
@@ -42,11 +41,8 @@ pip install -r requirements.txt
 
 ### 3. Run the Application
 ```bash
-streamlit run app.py
+streamlit run main.py
 ```
-*(Replace `main.py` with the actual name of your main Python file if it is different)*
-
----
 
 ## 📸 Dashboard Preview
 
